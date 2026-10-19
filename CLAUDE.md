@@ -22,6 +22,7 @@ Every commit **must** include a `Signed-off-by:` trailer to satisfy the Develope
 - `just again` - Push changes, update PR description, watch GHAs (most common iterative workflow)
 - `just merge` - Squash merge PR, delete branch, return to main
 - `just release v1.0.0` - Create release tag; GHA builds cross-platform binaries automatically
+- `just release_status` - Audit the latest release: workflow runs, signature-bundle pairing, and local cosign verification (host-platform binary by default, a named binary, or `all`)
 
 ### Testing
 
@@ -114,6 +115,8 @@ Check names display as "Workflow Name / Job Name". Failed checks include inline 
 ### Release workflow
 
 `just release v1.0.0` creates the GitHub release tag. Pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds cross-platform binaries via `gh-extension-precompile`, signs each with keyless cosign (one `<binary>.sigstore.json` Sigstore bundle per binary, verified in-CI before upload), and generates SLSA Level 3 provenance. Binaries are named `<os>-<arch>` (e.g., `darwin-arm64`) — **not** `<repo>_<version>_<os>-<arch>`. The signing, verification, and SLSA steps glob on this pattern; a rename that misses a glob fails the release loudly (the verify step requires a `.sigstore.json` bundle for every binary).
+
+`just release_status` re-checks the latest release locally: it fails loudly if any binary lacks its `.sigstore.json` (or legacy `.bundle`) signature bundle — the failure mode #521 exposed — and then runs the documented `cosign verify-blob` verification against assets downloaded from the release page, with the identity regexp derived from the repo remote so derived repos and forks verify their own releases. It targets the host-platform binary by default, a named binary via `just release_status darwin-arm64`, or every binary via `just release_status all`. Auxiliary assets (checksums, SBOMs) are listed but not signature-audited — only the `<os>-<arch>` binaries that release.yml signs are. Missing cosign exits 0 with a distinct "verification SKIPPED" status; a failed verification exits non-zero.
 
 ## Important implementation notes
 
