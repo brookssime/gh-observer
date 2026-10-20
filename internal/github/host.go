@@ -46,17 +46,73 @@ func isValidHost(s string) bool {
 	return defaultHostRegex.MatchString(s)
 }
 
+// APIURLEnvOverride names the environment variable that overrides the
+// derived enterprise API endpoints: when set, REST uses <url>/ and
+// GraphQL uses <url>/graphql for every non-github.com host. This serves
+// hosts whose API is not reachable via the api.<host> subdomain
+// convention (e.g. a reverse proxy serving both endpoints under one
+// base), and gives out-of-package tests a seam to point host-based
+// client construction at a local httptest server (issue #530) — the
+// host regex rejects ports, so an httptest server is otherwise
+// unreachable through host-based dispatch.
+//
+// The value must be an absolute https URL (or plain http on a loopback
+// host): the bearer token rides every request to the override target,
+// so plaintext stops at loopback. One URL cannot express GHES's split
+// layout (REST /api/v3, GraphQL /api/graphql) — see issue #532.
+const APIURLEnvOverride = "GH_OBSERVER_API_URL"
+
 // APIURLsForHost derives the REST and GraphQL API base URLs for a host.
 // The public github.com host returns empty strings so callers keep the
-// library defaults (api.github.com and githubv4's default endpoint).
+// library defaults (api.github.com and githubv4's default endpoint); a
+// stray GH_OBSERVER_API_URL never redirects public-host traffic.
 // Any other host is treated as a GitHub Enterprise instance using the
 // api.<host> subdomain convention: REST at https://api.<host>/ and
-// GraphQL at https://api.<host>/graphql.
+// GraphQL at https://api.<host>/graphql — unless GH_OBSERVER_API_URL
+// overrides both (see APIURLEnvOverride). An unusable override value —
+// unparseable, non-http(s), non-https off loopback — is ignored with a
+// debug log, mirroring the GH_HOST validation precedent: clients would
+// otherwise fail confusingly at request time.
 func APIURLsForHost(host string) (restURL, graphqlURL string) {
 	if host == "" || strings.EqualFold(host, DefaultGitHubHost) {
 		return "", ""
 	}
+	if base := strings.TrimSpace(os.Getenv(APIURLEnvOverride)); base != "" {
+		if validAPIURL(base) {
+			base = strings.TrimSuffix(base, "/")
+			return base + "/", base + "/graphql"
+		}
+		debug.Log("ignoring invalid "+APIURLEnvOverride, "value", base)
+	}
 	return fmt.Sprintf("https://api.%s/", host), fmt.Sprintf("https://api.%s/graphql", host)
+}
+
+// validAPIURL reports whether the GH_OBSERVER_API_URL value is usable: an
+// absolute https URL with a host, or a plain http URL on a loopback host.
+// The bearer token rides every request to the override target, so
+// plaintext http is confined to loopback (local test doubles, a local
+// proxy); anything off-loopback must use https.
+func validAPIURL(s string) bool {
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	switch u.Scheme {
+	case "https":
+		return true
+	case "http":
+		return isLoopbackHost(u.Hostname())
+	default:
+		return false
+	}
+}
+
+// isLoopbackHost reports whether host is a loopback hostname or literal:
+// "localhost", 127.0.0.1, or ::1 (url.URL.Hostname strips ports and IPv6
+// brackets). These are the only hosts accepted for plaintext http
+// overrides.
+func isLoopbackHost(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 // GetTokenForHost retrieves an auth token for the given host, mirroring
