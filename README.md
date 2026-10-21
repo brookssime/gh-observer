@@ -372,6 +372,12 @@ event annotation, elapsed time) followed by indented job rows. Transient
 fetch errors (e.g. 504 Gateway Timeout) do not replace the screen: the last
 good state stays visible with a red error line so polling can self-heal.
 
+When the PR and branch groups don't fit the terminal, they scroll between a
+pinned header and footer: `j`/`k` (or arrows) by line, `ctrl+f`/`ctrl+b`
+(or `pgdown`/`pgup`, `space`/`b`) by page, `ctrl+d`/`ctrl+u` by half page,
+and `gg`/`G` (or `home`/`end`) to the top or bottom. The footer shows a
+vim-style `Top`/`Bot`/percentage position.
+
 ### Skip historical averages for a faster snapshot
 
 If you just want a quick look without waiting for the historical averages
